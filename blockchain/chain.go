@@ -1,4 +1,3 @@
-// File: blockchain/chain.go
 package blockchain
 
 import (
@@ -6,11 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"sync"
-	"time"
 )
 
-const chainFile = "data/chain_data.json"
+const (
+	chainFile   = "data/chain_data.json"
+	backupFile  = "data/chain_data.json.bak"
+)
 
 var (
 	Chain      []*Block
@@ -18,18 +20,27 @@ var (
 )
 
 func InitGenesis() {
+	// 1. Force create data directory if missing
+	if _, err := os.Stat("data"); os.IsNotExist(err) {
+		log.Println("[DISK] Data directory missing. Creating...")
+		os.Mkdir("data", 0755)
+	}
+
+	// 2. Load existing ledger
 	if loadChainFromDisk() {
+		log.Printf("[DISK] Ledger loaded: %d blocks detected", len(Chain))
 		return
 	}
+
+	// 3. Fallback to Genesis
+	log.Println("[DISK] No ledger found. Generating Genesis Block...")
 	gen := NewBlock(0, "genesis", nil)
 	Chain = []*Block{gen}
 	saveChainToDisk()
 }
 
-// FIXED: Only one declaration of LatestBlock
 func LatestBlock() *Block {
-	ChainMutex.Lock()
-	defer ChainMutex.Unlock()
+	if len(Chain) == 0 { return nil }
 	return Chain[len(Chain)-1]
 }
 
@@ -37,7 +48,6 @@ func MineThreats() *Block {
 	prev := LatestBlock()
 	threats := LoadThreats()
 	
-	// Create the new block
 	newBlock := NewBlock(prev.Index+1, prev.Hash, threats)
 	
 	ChainMutex.Lock()
@@ -45,88 +55,39 @@ func MineThreats() *Block {
 	ChainMutex.Unlock()
 	
 	saveChainToDisk()
-	log.Printf("[BLOCKCHAIN] Mined block #%d with %d threats", newBlock.Index, len(threats))
+	log.Printf("[BLOCKCHAIN] Mined block #%d and saved to disk", newBlock.Index)
 	return newBlock
 }
 
-func AppendBlock(b *Block) error {
-	ChainMutex.Lock()
-	defer ChainMutex.Unlock()
-	last := Chain[len(Chain)-1]
-
-	if b.Index != last.Index+1 {
-		return fmt.Errorf("invalid index %d, expected %d", b.Index, last.Index+1)
-	}
-	if b.PrevHash != last.Hash {
-		return fmt.Errorf("invalid prev hash")
-	}
-
-	// Validate Hash (ASIC-Resistance check)
-	var valid bool
-	if b.Index < 2 {
-		valid = (b.ComputeHash() == b.Hash)
-	} else {
-		valid = (b.ComputeArgonHash() == b.Hash)
-	}
-
-	if !valid {
-		return fmt.Errorf("hash validation failed")
-	}
-
-	Chain = append(Chain, b)
-	saveChainToDisk()
-	return nil
-}
-
-// Standard file helpers below
 func saveChainToDisk() {
-	data, _ := json.MarshalIndent(Chain, "", "  ")
-	ioutil.WriteFile(chainFile, data, 0644)
+	data, err := json.MarshalIndent(Chain, "", "  ")
+	if err != nil {
+		log.Printf("[ERROR] Failed to encode chain: %v", err)
+		return
+	}
+
+	// Rotate main file to backup before writing new data (Safety First)
+	if _, err := os.Stat(chainFile); err == nil {
+		os.Rename(chainFile, backupFile)
+	}
+
+	err = ioutil.WriteFile(chainFile, data, 0644)
+	if err != nil {
+		log.Printf("[CRITICAL] Write failed: %v", err)
+	} else {
+		log.Println("[DISK] Persistence Successful.")
+	}
 }
 
 func loadChainFromDisk() bool {
+	// Try main file first, then backup
 	data, err := ioutil.ReadFile(chainFile)
 	if err != nil {
-		return false
+		data, err = ioutil.ReadFile(backupFile)
+		if err != nil {
+			return false
+		}
+		log.Println("[DISK] Main ledger corrupted or missing. Restored from backup.")
 	}
 	return json.Unmarshal(data, &Chain) == nil
-}
-
-// ProcessExternalBlock handles blocks solved by stn-stratumd workers
-func ProcessExternalBlock(index int, prevHash string, solution string) error {
-	ChainMutex.Lock()
-	defer ChainMutex.Unlock()
-
-	last := Chain[len(Chain)-1]
-
-	// 1. Context Validation
-	if index != last.Index+1 {
-		return fmt.Errorf("stale work: expected index %d", last.Index+1)
-	}
-	if prevHash != last.Hash {
-		return fmt.Errorf("parent mismatch: expected %s", last.Hash)
-	}
-
-	// 2. Create Candidate Block
-	threats := LoadThreats() // Pull any threats queued while mining
-	newBlock := &Block{
-		Index:     index,
-		Timestamp: time.Now().Unix(),
-		Threats:   threats,
-		PrevHash:  prevHash,
-		Hash:      solution, // The Argon2id hash found by the miner
-	}
-
-	// 3. PoW Validation
-	// Note: The miner must have solved the hash using the Argon2id parameters 
-	// (64MB, 1 pass, 4 threads) to match b.ComputeArgonHash()
-	if newBlock.ComputeArgonHash() != solution {
-		return fmt.Errorf("invalid proof of work solution")
-	}
-
-	// 4. Commit
-	Chain = append(Chain, newBlock)
-	saveChainToDisk()
-	log.Printf("[STRATUM] Block #%d accepted from external miner", index)
-	return nil
 }
