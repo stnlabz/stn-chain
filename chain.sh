@@ -1,1 +1,1 @@
-nohup go run main.go > logs/dw-chain.log 2>&1 &
+nohup go run main.go > logs/stn-chain.log 2>&1 &
