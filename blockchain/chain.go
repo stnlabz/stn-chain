@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"time"
 )
 
 const chainFile = "data/chain_data.json"
@@ -89,4 +90,43 @@ func loadChainFromDisk() bool {
 		return false
 	}
 	return json.Unmarshal(data, &Chain) == nil
+}
+
+// ProcessExternalBlock handles blocks solved by stn-stratumd workers
+func ProcessExternalBlock(index int, prevHash string, solution string) error {
+	ChainMutex.Lock()
+	defer ChainMutex.Unlock()
+
+	last := Chain[len(Chain)-1]
+
+	// 1. Context Validation
+	if index != last.Index+1 {
+		return fmt.Errorf("stale work: expected index %d", last.Index+1)
+	}
+	if prevHash != last.Hash {
+		return fmt.Errorf("parent mismatch: expected %s", last.Hash)
+	}
+
+	// 2. Create Candidate Block
+	threats := LoadThreats() // Pull any threats queued while mining
+	newBlock := &Block{
+		Index:     index,
+		Timestamp: time.Now().Unix(),
+		Threats:   threats,
+		PrevHash:  prevHash,
+		Hash:      solution, // The Argon2id hash found by the miner
+	}
+
+	// 3. PoW Validation
+	// Note: The miner must have solved the hash using the Argon2id parameters 
+	// (64MB, 1 pass, 4 threads) to match b.ComputeArgonHash()
+	if newBlock.ComputeArgonHash() != solution {
+		return fmt.Errorf("invalid proof of work solution")
+	}
+
+	// 4. Commit
+	Chain = append(Chain, newBlock)
+	saveChainToDisk()
+	log.Printf("[STRATUM] Block #%d accepted from external miner", index)
+	return nil
 }

@@ -60,3 +60,12 @@ func (b *Block) GetHeaderHex() string {
     header := fmt.Sprintf("%08x%s", b.Index, b.PrevHash)
     return hex.EncodeToString([]byte(header))
 }
+
+// NEW: Helper for stn-stratumd to identify the workload
+func (b *Block) GetWorkFormat() map[string]interface{} {
+	return map[string]interface{}{
+		"index":     b.Index + 1,
+		"prev_hash": b.Hash,
+		"seed":      fmt.Sprintf("%d-%s", b.Index, b.Hash[:8]),
+	}
+}
