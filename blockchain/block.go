@@ -5,9 +5,9 @@ import (
     "encoding/hex"
     "fmt"
     "time"
+    "golang.org/x/crypto/argon2" // Run: go get golang.org/x/crypto/argon2
 )
 
-// Block holds threats.
 type Block struct {
     Index     int
     Timestamp int64
@@ -16,7 +16,7 @@ type Block struct {
     Hash      string
 }
 
-// ComputeHash covers Index, Timestamp, PrevHash and all Threat.Hashes.
+// ComputeHash (Legacy SHA256) - Keep for Block 0 and 1
 func (b *Block) ComputeHash() string {
     data := fmt.Sprintf("%d|%d|%s", b.Index, b.Timestamp, b.PrevHash)
     for _, t := range b.Threats {
@@ -26,7 +26,19 @@ func (b *Block) ComputeHash() string {
     return hex.EncodeToString(sum[:])
 }
 
-// NewBlock builds a block, computes its hash.
+// ComputeArgonHash (ASIC Resistant) - Mandatory for Block 2+
+func (b *Block) ComputeArgonHash() string {
+    data := fmt.Sprintf("%d|%d|%s", b.Index, b.Timestamp, b.PrevHash)
+    for _, t := range b.Threats {
+        data += "|" + t.Hash
+    }
+    // Salt is static for chain-wide consistency
+    salt := []byte("stn-sovereign-quad-salt")
+    // Argon2id: 1 pass, 64MB memory, 4 threads (Tuned for Pi 5)
+    hash := argon2.IDKey([]byte(data), salt, 1, 64*1024, 4, 32)
+    return hex.EncodeToString(hash)
+}
+
 func NewBlock(index int, prevHash string, threats []Threat) *Block {
     b := &Block{
         Index:     index,
@@ -34,6 +46,17 @@ func NewBlock(index int, prevHash string, threats []Threat) *Block {
         Threats:   threats,
         PrevHash:  prevHash,
     }
-    b.Hash = b.ComputeHash()
+    // Logic: Genesis and initial testing use SHA256; transition at Block 2
+    if index >= 2 {
+        b.Hash = b.ComputeArgonHash()
+    } else {
+        b.Hash = b.ComputeHash()
+    }
     return b
+}
+
+// GetHeaderHex formats the block for the RPC bridge
+func (b *Block) GetHeaderHex() string {
+    header := fmt.Sprintf("%08x%s", b.Index, b.PrevHash)
+    return hex.EncodeToString([]byte(header))
 }
