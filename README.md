@@ -6,5 +6,5 @@ The STN Threat Index Block Chain
  - to assist in publication via the devbot project to blogs/post/papers and contracts.
  - to eventually make visible to the entire world, the bad actors that lurk in darkness.
  - For machine and human readable JSON for the STN-API please see https://api.stn-labz.com/events
- - To maintain an **ASIC RESISTANT** State so that even this with just a Raspberry Pi can mine this blockchain.
+ - To maintain an **ASIC RESISTANT** State so that even those with just a Raspberry Pi can mine this blockchain.
    
