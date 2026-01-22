@@ -1,0 +1,4 @@
+2026/01/22 05:02:53 [BLOCKCHAIN] InitGenesis started
+2026/01/22 05:02:53 [BLOCKCHAIN] No existing chain on disk, creating genesis block
+2026/01/22 05:02:53 [HTTP] Starting server on :8333
+2026/01/22 05:18:55 [BLOCKCHAIN] Mined block #1 with 0 threats
